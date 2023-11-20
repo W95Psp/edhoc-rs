@@ -30,22 +30,22 @@ pub fn edhoc_exporter(
 }
 
 pub fn edhoc_key_update(
-    state: &mut State<Completed>,
+    state: State<Completed>,
     crypto: &mut impl CryptoTrait,
     context: &BytesMaxContextBuffer,
     context_len: usize,
-) -> BytesHashLen {
+) -> (State<Completed>, BytesHashLen) {
     let State(
-        _current_state,
-        _x_or_y,
-        _c_i,
-        _gy_or_gx,
-        _prk_3e2m,
-        _prk_4e3m,
+        current_state,
+        x_or_y,
+        c_i,
+        gy_or_gx,
+        prk_3e2m,
+        prk_4e3m,
         mut prk_out,
         mut prk_exporter,
-        _h_message_1,
-        _th_3,
+        h_message_1,
+        th_3,
     ) = state;
 
     let mut prk_new_buf: BytesMaxBuffer = [0x00; MAX_BUFFER_LEN];
@@ -72,7 +72,21 @@ pub fn edhoc_key_update(
     );
     prk_exporter[..SHA256_DIGEST_LEN].copy_from_slice(&prk_new_buf[..SHA256_DIGEST_LEN]);
 
-    prk_out
+    (
+        State(
+            current_state,
+            x_or_y,
+            c_i,
+            gy_or_gx,
+            prk_3e2m,
+            prk_4e3m,
+            prk_out,
+            prk_exporter,
+            h_message_1,
+            th_3,
+        ),
+        prk_out,
+    )
 }
 
 pub fn r_process_message_1(

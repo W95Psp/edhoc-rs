@@ -187,12 +187,14 @@ impl<Crypto: CryptoTrait> EdhocResponderDone<Crypto> {
         let mut context_buf = [0x00u8; MAX_KDF_CONTEXT_LEN];
         context_buf[..context.len()].copy_from_slice(context);
 
-        edhoc_key_update(
-            &mut self.state,
+        let (state, result) = edhoc_key_update(
+            self.state.clone(),
             &mut self.crypto,
             &context_buf,
             context.len(),
-        )
+        );
+        self.state = state;
+        result
     }
 }
 
@@ -320,12 +322,14 @@ impl<Crypto: CryptoTrait> EdhocInitiatorDone<Crypto> {
         let mut context_buf = [0x00u8; MAX_KDF_CONTEXT_LEN];
         context_buf[..context.len()].copy_from_slice(context);
 
-        edhoc_key_update(
-            &mut self.state,
+        let (state, result) = edhoc_key_update(
+            self.state.clone(),
             &mut self.crypto,
             &context_buf,
             context.len(),
-        )
+        );
+        self.state = state;
+        result
     }
 }
 
