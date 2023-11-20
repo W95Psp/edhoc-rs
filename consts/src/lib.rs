@@ -339,19 +339,19 @@ mod helpers {
                 + COSE_KEY_FIRST_ITEMS_LEN
                 + P256_ELEM_LEN
         {
-            return Err(EDHOCError::ParsingError);
+            Err(EDHOCError::ParsingError)
+        } else {
+            let subject_len = (cred[2] - CBOR_MAJOR_TEXT_STRING) as usize;
+            let id_cred_offset: usize = CCS_PREFIX_LEN + subject_len + CNF_AND_COSE_KEY_PREFIX_LEN;
+            let g_a_x_offset: usize = id_cred_offset + COSE_KEY_FIRST_ITEMS_LEN;
+
+            Ok((
+                cred[g_a_x_offset..g_a_x_offset + P256_ELEM_LEN]
+                    .try_into()
+                    .expect("Wrong key length"),
+                cred[id_cred_offset],
+            ))
         }
-
-        let subject_len = (cred[2] - CBOR_MAJOR_TEXT_STRING) as usize;
-        let id_cred_offset: usize = CCS_PREFIX_LEN + subject_len + CNF_AND_COSE_KEY_PREFIX_LEN;
-        let g_a_x_offset: usize = id_cred_offset + COSE_KEY_FIRST_ITEMS_LEN;
-
-        Ok((
-            cred[g_a_x_offset..g_a_x_offset + P256_ELEM_LEN]
-                .try_into()
-                .expect("Wrong key length"),
-            cred[id_cred_offset],
-        ))
     }
 
     pub fn get_id_cred<'a>(cred: &'a [u8]) -> BytesIdCred {
