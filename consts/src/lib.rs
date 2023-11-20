@@ -165,38 +165,30 @@ impl Default for EdhocMessageBuffer {
     }
 }
 
-pub trait MessageBufferTrait {
-    fn new() -> Self;
-    fn get(self, index: usize) -> Option<u8>;
-    fn get_slice<'a>(&'a self, start: usize, len: usize) -> Option<&'a [u8]>;
-    fn as_slice<'a>(&'a self) -> &'a [u8];
-    fn from_hex(hex: &str) -> Self;
-}
-
-impl MessageBufferTrait for EdhocMessageBuffer {
-    fn new() -> Self {
+impl EdhocMessageBuffer {
+    pub fn new() -> Self {
         EdhocMessageBuffer {
             content: [0u8; MAX_MESSAGE_SIZE_LEN],
             len: 0,
         }
     }
 
-    fn get(self, index: usize) -> Option<u8> {
+    pub fn get(self, index: usize) -> Option<u8> {
         match self.content.get(index) {
             Some(b) => Some(*b),
             _ => None,
         }
     }
 
-    fn get_slice<'a>(&'a self, start: usize, len: usize) -> Option<&'a [u8]> {
+    pub fn get_slice<'a>(&'a self, start: usize, len: usize) -> Option<&'a [u8]> {
         self.content.get(start..len)
     }
 
-    fn as_slice<'a>(&'a self) -> &'a [u8] {
+    pub fn as_slice<'a>(&'a self) -> &'a [u8] {
         &self.content[0..self.len]
     }
 
-    fn from_hex(hex: &str) -> Self {
+    pub fn from_hex(hex: &str) -> Self {
         let mut buffer = EdhocMessageBuffer::new();
         buffer.len = hex.len() / 2;
         for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
@@ -235,12 +227,8 @@ pub struct EADItem {
     pub value: Option<EdhocMessageBuffer>,
 }
 
-pub trait EADTrait {
-    fn new() -> Self;
-}
-
-impl EADTrait for EADItem {
-    fn new() -> Self {
+impl EADItem {
+    pub fn new() -> Self {
         EADItem {
             label: 0,
             is_critical: false,
