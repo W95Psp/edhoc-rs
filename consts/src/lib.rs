@@ -405,60 +405,56 @@ mod edhoc_parser {
     use super::*;
 
     pub fn parse_ead(buffer: &[u8]) -> Result<Option<EADItem>, EDHOCError> {
-        let ead_item;
         let mut ead_value = None::<EdhocMessageBuffer>;
 
         // assuming label is a single byte integer (negative or positive)
-        let label = match buffer.get(0) {
-            Some(b) => *b,
-            _ => return Err(EDHOCError::ParsingError),
-        };
-
-        let (label, is_critical) = if CBORDecoder::is_u8(label) {
-            // CBOR unsigned integer (0..=23)
-            (label as u8, false)
-        } else if CBORDecoder::is_i8(label) {
-            // CBOR negative integer (-1..=-24)
-            (label - (CBOR_NEG_INT_1BYTE_START - 1), true)
-        } else {
-            return Err(EDHOCError::ParsingError);
-        };
-
-        if buffer.len() > 1 {
-            // EAD value is present
-            let slice = match buffer.get(1..buffer.len()) {
-                Some(slice) => slice,
-                _ => return Err(EDHOCError::ParsingError),
+        if let Some(&label) = buffer.get(0) {
+            let (label, is_critical) = if CBORDecoder::is_u8(label) {
+                // CBOR unsigned integer (0..=23)
+                (label as u8, false)
+            } else if CBORDecoder::is_i8(label) {
+                // CBOR negative integer (-1..=-24)
+                (label - (CBOR_NEG_INT_1BYTE_START - 1), true)
+            } else {
+                return Err(EDHOCError::ParsingError);
             };
 
-            let mut buffer = EdhocMessageBuffer::new();
-            buffer.content[..slice.len()].copy_from_slice(slice);
-            buffer.len = slice.len();
-            ead_value = Some(buffer);
+            if buffer.len() > 1 {
+                // EAD value is present
+                let slice = match buffer.get(1..buffer.len()) {
+                    Some(slice) => slice,
+                    _ => return Err(EDHOCError::ParsingError),
+                };
+
+                let mut buffer = EdhocMessageBuffer::new();
+                buffer.content[..slice.len()].copy_from_slice(slice);
+                buffer.len = slice.len();
+                ead_value = Some(buffer);
+            }
+            Ok(Some(EADItem {
+                label,
+                is_critical,
+                value: ead_value,
+            }))
+        } else {
+            Err(EDHOCError::ParsingError)
         }
-        ead_item = Some(EADItem {
-            label,
-            is_critical,
-            value: ead_value,
-        });
-        Ok(ead_item)
     }
 
     pub fn parse_suites_i(
         mut decoder: CBORDecoder,
     ) -> Result<(BytesSuites, usize, CBORDecoder), EDHOCError> {
         let mut suites_i: BytesSuites = Default::default();
-        let suites_i_len: usize;
         if let Ok(curr) = decoder.current() {
             if CBOR_UINT_1BYTE_START == CBORDecoder::type_of(curr) {
                 suites_i[0] = decoder.u8()?;
-                suites_i_len = 1;
+                let suites_i_len = 1;
                 Ok((suites_i, suites_i_len, decoder))
             } else if CBOR_MAJOR_ARRAY == CBORDecoder::type_of(curr)
                 && CBORDecoder::info_of(curr) >= 2
             {
                 // NOTE: arrays must be at least 2 items long, otherwise the compact encoding (int) must be used
-                suites_i_len = decoder.array()?;
+                let suites_i_len = decoder.array()?;
                 if suites_i_len <= suites_i.len() {
                     for i in 0..suites_i_len {
                         suites_i[i] = decoder.u8()?;
@@ -488,8 +484,6 @@ mod edhoc_parser {
         ),
         EDHOCError,
     > {
-        let suites_i: BytesSuites;
-        let suites_i_len: usize;
         let mut g_x: BytesP256ElemLen = [0x00; P256_ELEM_LEN];
 
         let mut decoder = CBORDecoder::new(rcvd_message_1.as_slice());
@@ -497,30 +491,31 @@ mod edhoc_parser {
         let method = decoder.u8()?;
 
         if let Ok(res) = parse_suites_i(decoder) {
-            (suites_i, suites_i_len, decoder) = res;
-        } else {
-            return Err(EDHOCError::ParsingError);
-        }
+            let (suites_i, suites_i_len, new_decoder) = res;
+            decoder = new_decoder;
 
-        g_x.copy_from_slice(decoder.bytes_sized(P256_ELEM_LEN)?);
+            g_x.copy_from_slice(decoder.bytes_sized(P256_ELEM_LEN)?);
 
-        // consume c_i encoded as single-byte int (we still do not support bstr encoding)
-        let c_i = decoder.int_raw()?;
+            // consume c_i encoded as single-byte int (we still do not support bstr encoding)
+            let c_i = decoder.int_raw()?;
 
-        // if there is still more to parse, the rest will be the EAD_1
-        if rcvd_message_1.len > decoder.position() {
-            // NOTE: since the current implementation only supports one EAD handler,
-            // we assume only one EAD item
-            let ead_res = parse_ead(decoder.remaining_buffer()?);
-            if ead_res.is_ok() {
-                let ead_1 = ead_res.unwrap();
-                Ok((method, suites_i, suites_i_len, g_x, c_i, ead_1))
+            // if there is still more to parse, the rest will be the EAD_1
+            if rcvd_message_1.len > decoder.position() {
+                // NOTE: since the current implementation only supports one EAD handler,
+                // we assume only one EAD item
+                let ead_res = parse_ead(decoder.remaining_buffer()?);
+                if ead_res.is_ok() {
+                    let ead_1 = ead_res.unwrap();
+                    Ok((method, suites_i, suites_i_len, g_x, c_i, ead_1))
+                } else {
+                    Err(ead_res.unwrap_err())
+                }
             } else {
-                Err(ead_res.unwrap_err())
+                decoder.ensure_finished()?;
+                Ok((method, suites_i, suites_i_len, g_x, c_i, None))
             }
         } else {
-            decoder.ensure_finished()?;
-            Ok((method, suites_i, suites_i_len, g_x, c_i, None))
+            Err(EDHOCError::ParsingError)
         }
     }
 
@@ -563,13 +558,13 @@ mod edhoc_parser {
         let c_r = decoder.int_raw()?;
 
         // NOTE: if len of bstr is 1, it is a compact kid and therefore should have been encoded as int
-        if CBOR_MAJOR_BYTE_STRING == CBORDecoder::type_of(decoder.current()?)
+        let id_cred_r = if CBOR_MAJOR_BYTE_STRING == CBORDecoder::type_of(decoder.current()?)
             && CBORDecoder::info_of(decoder.current()?) > 1
         {
-            id_cred_r = IdCred::FullCredential(decoder.bytes()?);
+            IdCred::FullCredential(decoder.bytes()?)
         } else {
-            id_cred_r = IdCred::CompactKid(decoder.int_raw()?);
-        }
+            IdCred::CompactKid(decoder.int_raw()?)
+        };
 
         mac_2[..].copy_from_slice(decoder.bytes_sized(MAC_LENGTH_2)?);
 
@@ -598,13 +593,13 @@ mod edhoc_parser {
         let mut decoder = CBORDecoder::new(plaintext_3.as_slice());
 
         // NOTE: if len of bstr is 1, then it is a compact kid and therefore should have been encoded as int
-        if CBOR_MAJOR_BYTE_STRING == CBORDecoder::type_of(decoder.current()?)
+        let id_cred_i = if CBOR_MAJOR_BYTE_STRING == CBORDecoder::type_of(decoder.current()?)
             && CBORDecoder::info_of(decoder.current()?) > 1
         {
-            id_cred_i = IdCred::FullCredential(decoder.bytes()?);
+            IdCred::FullCredential(decoder.bytes()?)
         } else {
-            id_cred_i = IdCred::CompactKid(decoder.int_raw()?);
-        }
+            IdCred::CompactKid(decoder.int_raw()?)
+        };
 
         mac_3[..].copy_from_slice(decoder.bytes_sized(MAC_LENGTH_3)?);
 
@@ -656,9 +651,10 @@ mod cbor_decoder {
         fn read(&mut self) -> Result<u8, CBORError> {
             if let Some(b) = self.buf.get(self.pos) {
                 self.pos += 1;
-                return Ok(*b);
+                Ok(*b)
+            } else {
+                Err(CBORError::DecodingError)
             }
-            Err(CBORError::DecodingError)
         }
 
         /// Consume and return *n* bytes starting at the current position.
@@ -669,9 +665,10 @@ mod cbor_decoder {
                 .and_then(|end| self.buf.get(self.pos..end))
             {
                 self.pos += n;
-                return Ok(b);
+                Ok(b)
+            } else {
+                Err(CBORError::DecodingError)
             }
-            Err(CBORError::DecodingError)
         }
 
         pub fn position(&self) -> usize {
@@ -701,9 +698,10 @@ mod cbor_decoder {
         /// Get the byte at the current position.
         pub fn current(&self) -> Result<u8, CBORError> {
             if let Some(b) = self.buf.get(self.pos) {
-                return Ok(*b);
+                Ok(*b)
+            } else {
+                Err(CBORError::DecodingError)
             }
-            Err(CBORError::DecodingError)
         }
 
         /// Decode a `u8` value.
@@ -738,10 +736,11 @@ mod cbor_decoder {
             let p = self.pos;
             let b = self.read()?;
             if CBOR_MAJOR_TEXT_STRING != Self::type_of(b) || Self::info_of(b) == 31 {
-                return Err(CBORError::DecodingError);
+                Err(CBORError::DecodingError)
+            } else {
+                let n = self.as_usize(Self::info_of(b))?;
+                self.read_slice(n)
             }
-            let n = self.as_usize(Self::info_of(b))?;
-            self.read_slice(n)
         }
 
         /// Decode a byte slice.
@@ -749,10 +748,11 @@ mod cbor_decoder {
             let p = self.pos;
             let b = self.read()?;
             if CBOR_MAJOR_BYTE_STRING != Self::type_of(b) || Self::info_of(b) == 31 {
-                return Err(CBORError::DecodingError);
+                Err(CBORError::DecodingError)
+            } else {
+                let n = self.as_usize(Self::info_of(b))?;
+                self.read_slice(n)
             }
-            let n = self.as_usize(Self::info_of(b))?;
-            self.read_slice(n)
         }
 
         /// Decode a byte slice of an expected size.
@@ -769,11 +769,8 @@ mod cbor_decoder {
         pub fn array(&mut self) -> Result<usize, CBORError> {
             let p = self.pos;
             let b = self.read()?;
-            if CBOR_MAJOR_ARRAY != Self::type_of(b) {
-                return Err(CBORError::DecodingError);
-            }
             match Self::info_of(b) {
-                31 => Err(CBORError::DecodingError), // no support for unknown size arrays
+                _ if CBOR_MAJOR_ARRAY != Self::type_of(b) | 31 => Err(CBORError::DecodingError), // no support for unknown size arrays
                 n => Ok(self.as_usize(n)?),
             }
         }
@@ -799,12 +796,12 @@ mod cbor_decoder {
 
         /// Check for: an unsigned integer encoded as a single byte
         pub fn is_u8(byte: u8) -> bool {
-            return byte >= CBOR_UINT_1BYTE_START && byte <= CBOR_UINT_1BYTE_END;
+            byte >= CBOR_UINT_1BYTE_START && byte <= CBOR_UINT_1BYTE_END
         }
 
         /// Check for: a negative integer encoded as a single byte
         pub fn is_i8(byte: u8) -> bool {
-            return byte >= CBOR_NEG_INT_1BYTE_START && byte <= CBOR_NEG_INT_1BYTE_END;
+            byte >= CBOR_NEG_INT_1BYTE_START && byte <= CBOR_NEG_INT_1BYTE_END
         }
     }
 }
