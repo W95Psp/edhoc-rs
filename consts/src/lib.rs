@@ -85,30 +85,22 @@ pub type BytesMac = [u8; MAC_LENGTH];
 pub type BytesEncodedVoucher = [u8; ENCODED_VOUCHER_LEN];
 pub type EADMessageBuffer = EdhocMessageBuffer; // TODO: make it of size MAX_EAD_SIZE_LEN
 
-// This is sealed
-pub trait EDHOCState: core::fmt::Debug + Clone {}
 // For both initiator and responder
 #[derive(Clone, Debug)]
 pub struct Start;
-impl EDHOCState for Start {}
 // For the initiator
 #[derive(Clone, Debug)]
 pub struct WaitMessage2;
-impl EDHOCState for WaitMessage2 {}
 #[derive(Clone, Debug)]
 pub struct ProcessedMessage2;
-impl EDHOCState for ProcessedMessage2 {}
 // For the responder
 #[derive(Clone, Debug)]
 pub struct ProcessedMessage1;
-impl EDHOCState for ProcessedMessage1 {}
 #[derive(Clone, Debug)]
 pub struct WaitMessage3;
-impl EDHOCState for WaitMessage3 {}
 // For both again
 #[derive(Clone, Debug)]
 pub struct Completed;
-impl EDHOCState for Completed {}
 
 #[repr(C)]
 #[derive(PartialEq, Debug)]
@@ -124,7 +116,7 @@ pub enum EDHOCError {
 
 #[repr(C)]
 #[derive(Clone, Debug)]
-pub struct State<Phase: EDHOCState>(
+pub struct State<Phase>(
     pub PhantomData<Phase>,
     pub BytesP256ElemLen, // x or y, ephemeral private key of myself
     pub u8,               // c_i, connection identifier chosen by the initiator
